@@ -4,6 +4,7 @@ import requests
 from typing import List, Dict, Optional
 from collections import Counter
 import re
+import time
 
 class MovieRecommender:
     def __init__(self, api_key: str):
@@ -13,24 +14,55 @@ class MovieRecommender:
         """
         self.api_key = "845f13ea36ee14d6ed50333f70783cb7"
         self.base_url = "https://api.themoviedb.org/3"
-        
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9'
+        })
+    
+    def _make_request(self, url: str, params: dict, max_retries: int = 3) -> Optional[dict]:
+        """Make API request with retry logic"""
+        for attempt in range(max_retries):
+            try:
+                time.sleep(0.5)  # Small delay between requests
+                response = self.session.get(url, params=params, timeout=30)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.ConnectionError as e:
+                print(f"Connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Wait before retry
+                    continue
+                return None
+            except Exception as e:
+                print(f"Error (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                return None
+        return None
+    
     def search_movie(self, movie_name: str) -> Optional[Dict]:
         """Search for a movie by name"""
         url = f"{self.base_url}/search/movie"
         params = {
             "api_key": self.api_key,
-            "query": movie_name,
-            "language": "en-US"
+            "query": movie_name
         }
         
         try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            print(f"Searching for '{movie_name}'...")
+            data = self._make_request(url, params)
             
-            if data['results']:
-                return data['results'][0]  # Return first match
+            if data and data.get('results'):
+                print(f"✓ Found {len(data['results'])} results")
+                print(f"  Top result: {data['results'][0]['title']} ({data['results'][0].get('release_date', 'N/A')[:4]})")
+                return data['results'][0]
+            
+            print(f"No results found for '{movie_name}'")
             return None
+            
         except Exception as e:
             print(f"Error searching movie: {e}")
             return None
@@ -44,9 +76,8 @@ class MovieRecommender:
         }
         
         try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            return response.json()
+            data = self._make_request(url, params)
+            return data
         except Exception as e:
             print(f"Error getting movie details: {e}")
             return None
@@ -200,12 +231,16 @@ class MovieRecommender:
                 "message": "No similar movies found for the selected language"
             }
         
-        # Get all movie details
+        # Get all movie details with delay to avoid connection reset
         all_movie_details = []
-        for movie in similar_movies[:30]:  # Limit to 30 for performance
+        for i, movie in enumerate(similar_movies[:30]):  # Limit to 30 for performance
             details = self.get_movie_details(movie['id'])
             if details:
                 all_movie_details.append((movie, details))
+            
+            # Add small delay every 5 requests
+            if (i + 1) % 5 == 0:
+                time.sleep(1)
         
         # Build vocabulary and IDF
         all_overviews = [input_movie_details.get('overview', '')] + \
@@ -261,15 +296,17 @@ class MovieRecommender:
             # Get recommendations
             url = f"{self.base_url}/movie/{movie_id}/recommendations"
             params = {"api_key": self.api_key, "page": 1}
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            all_movies.extend(response.json().get('results', []))
+            data = self._make_request(url, params)
+            if data:
+                all_movies.extend(data.get('results', []))
+            
+            time.sleep(1)  # Delay between requests
             
             # Get similar movies
             url = f"{self.base_url}/movie/{movie_id}/similar"
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            all_movies.extend(response.json().get('results', []))
+            data = self._make_request(url, params)
+            if data:
+                all_movies.extend(data.get('results', []))
             
             # Filter by language if specified
             if language_code:
@@ -305,9 +342,8 @@ class MovieRecommender:
                 "page": 1
             }
             
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            return response.json().get('results', [])
+            data = self._make_request(url, params)
+            return data.get('results', []) if data else []
         except Exception as e:
             print(f"Error discovering movies: {e}")
             return []
