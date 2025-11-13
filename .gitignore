@@ -1,0 +1,15 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+frontend/.pnp/
+frontend/.pnp.js
+
+# Build files
+frontend/build/
+
+# Logs
+*.log
