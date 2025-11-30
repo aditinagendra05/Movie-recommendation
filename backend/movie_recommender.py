@@ -12,7 +12,8 @@ class MovieRecommender:
         Initialize the Movie Recommender with TMDb API
         Get your free API key from: https://www.themoviedb.org/settings/api
         """
-        self.api_key = "845f13ea36ee14d6ed50333f70783cb7"
+        # FIX: Use the api_key parameter instead of hardcoded value
+        self.api_key = api_key
         self.base_url = "https://api.themoviedb.org/3"
         self.session = requests.Session()
         self.session.headers.update({
@@ -173,7 +174,7 @@ class MovieRecommender:
         
         return combined_similarity, cosine_sim_genre, cosine_sim_overview
     
-    def get_recommendations(self, movie_name: str, language: str = "mixed", 
+    def get_recommendations(self, movie_name: str, movie_id: Optional[int] = None, language: str = "mixed", 
                           num_recommendations: int = 5,
                           genre_weight: float = 0.7,
                           overview_weight: float = 0.3) -> Dict:
@@ -347,3 +348,4 @@ class MovieRecommender:
         except Exception as e:
             print(f"Error discovering movies: {e}")
             return []
+        

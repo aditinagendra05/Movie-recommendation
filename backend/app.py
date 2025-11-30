@@ -10,7 +10,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React frontend
+
+# FIX: More specific CORS configuration
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # Initialize the recommender with API key
 TMDB_API_KEY = os.getenv('TMDB_API_KEY', 'YOUR_API_KEY_HERE')
@@ -70,7 +78,7 @@ def recommend():
             overview_weight=overview_weight
         )
         
-        # Save to database if successful (NEW FEATURE)
+        # Save to database if successful
         if result.get('success') and result.get('searched_movie') and result.get('recommendations'):
             history_id = db.save_recommendation(
                 searched_movie=result['searched_movie'],
@@ -90,6 +98,8 @@ def recommend():
         }), 400
     except Exception as e:
         print(f"Error in recommend endpoint: {e}")
+        import traceback
+        traceback.print_exc()  # Print full error for debugging
         return jsonify({
             "success": False,
             "error": "Internal server error. Please try again later."
@@ -115,19 +125,17 @@ def search_movie():
         return jsonify({
             "success": True,
             "movie": movie,
-            "count":len(movie)
+            "count": len(movie) if isinstance(movie, list) else (1 if movie else 0)
         }), 200
             
     except Exception as e:
         print(f"Error in search endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
         }), 500
-
-# ============================================
-# NEW HISTORY ENDPOINTS (ADDED FUNCTIONALITY)
-# ============================================
 
 @app.route('/api/history', methods=['GET'])
 def get_history():
@@ -144,6 +152,8 @@ def get_history():
         
     except Exception as e:
         print(f"Error in history endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
@@ -168,6 +178,8 @@ def get_history_details(history_id):
             
     except Exception as e:
         print(f"Error in history details endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
@@ -186,6 +198,8 @@ def get_statistics():
         
     except Exception as e:
         print(f"Error in statistics endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
@@ -210,6 +224,8 @@ def delete_history(history_id):
             
     except Exception as e:
         print(f"Error in delete history endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
@@ -234,14 +250,12 @@ def clear_history():
             
     except Exception as e:
         print(f"Error in clear history endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": "Internal server error"
         }), 500
-
-# ============================================
-# END OF NEW HISTORY ENDPOINTS
-# ============================================
 
 @app.errorhandler(404)
 def not_found(e):
@@ -258,8 +272,20 @@ def internal_error(e):
     }), 500
 
 if __name__ == '__main__':
+    print("="*60)
     print("Starting Movie Recommender API...")
-    print(f"Using TMDb API Key: {TMDB_API_KEY[:10]}..." if TMDB_API_KEY != 'YOUR_API_KEY_HERE' else "WARNING: Using placeholder API key")
-    print("Database initialized at: movie_recommendations.db")
-    print("Server running on http://localhost:5000")
+    print("="*60)
+    
+    # Check API key
+    if TMDB_API_KEY == 'YOUR_API_KEY_HERE':
+        print("⚠️  WARNING: Using placeholder API key!")
+        print("   Get your API key from: https://www.themoviedb.org/settings/api")
+    else:
+        print(f"✓ Using TMDb API Key: {TMDB_API_KEY[:10]}...")
+    
+    print(f"✓ Database initialized at: movie_recommendations.db")
+    print(f"✓ Server running on http://localhost:5000")
+    print(f"✓ CORS enabled for http://localhost:3000")
+    print("="*60)
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
