@@ -2,6 +2,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from movie_recommender import MovieRecommender
+from database import DatabaseManager
 import os
 from dotenv import load_dotenv
 
@@ -15,6 +16,9 @@ CORS(app)  # Enable CORS for React frontend
 TMDB_API_KEY = os.getenv('TMDB_API_KEY', 'YOUR_API_KEY_HERE')
 recommender = MovieRecommender(TMDB_API_KEY)
 
+# Initialize database
+db = DatabaseManager()
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -27,20 +31,10 @@ def health_check():
 def recommend():
     """
     Get movie recommendations
-    
-    Expected JSON payload:
-    {
-        "movieName": "URI: The Surgical Strike",
-        "language": "hindi",
-        "genreWeight": 0.7,
-        "overviewWeight": 0.3
-    }
     """
     try:
-        # Get data from request
         data = request.get_json()
         
-        # Validate required fields
         if not data or 'movieName' not in data:
             return jsonify({
                 "success": False,
@@ -48,6 +42,7 @@ def recommend():
             }), 400
         
         movie_name = data['movieName']
+        movie_id = data.get('movieId')  # Optional: specific movie ID
         language = data.get('language', 'mixed')
         genre_weight = float(data.get('genreWeight', 0.7))
         overview_weight = float(data.get('overviewWeight', 0.3))
@@ -68,11 +63,23 @@ def recommend():
         # Get recommendations
         result = recommender.get_recommendations(
             movie_name=movie_name,
+            movie_id=movie_id,
             language=language,
             num_recommendations=5,
             genre_weight=genre_weight,
             overview_weight=overview_weight
         )
+        
+        # Save to database if successful (NEW FEATURE)
+        if result.get('success') and result.get('searched_movie') and result.get('recommendations'):
+            history_id = db.save_recommendation(
+                searched_movie=result['searched_movie'],
+                recommendations=result['recommendations'],
+                language=language,
+                genre_weight=genre_weight,
+                overview_weight=overview_weight
+            )
+            result['history_id'] = history_id
         
         return jsonify(result), 200
         
@@ -88,7 +95,7 @@ def recommend():
             "error": "Internal server error. Please try again later."
         }), 500
 
-@app.route('/api/search', methods=['GET'])
+@app.route('/api/search-movies', methods=['GET'])
 def search_movie():
     """
     Search for a movie by name
@@ -105,16 +112,11 @@ def search_movie():
         
         movie = recommender.search_movie(movie_name)
         
-        if movie:
-            return jsonify({
-                "success": True,
-                "movie": movie
-            }), 200
-        else:
-            return jsonify({
-                "success": False,
-                "error": f"Movie '{movie_name}' not found"
-            }), 404
+        return jsonify({
+            "success": True,
+            "movie": movie,
+            "count":len(movie)
+        }), 200
             
     except Exception as e:
         print(f"Error in search endpoint: {e}")
@@ -122,6 +124,124 @@ def search_movie():
             "success": False,
             "error": "Internal server error"
         }), 500
+
+# ============================================
+# NEW HISTORY ENDPOINTS (ADDED FUNCTIONALITY)
+# ============================================
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    """Get recent recommendation history"""
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        history = db.get_recent_history(limit=limit)
+        
+        return jsonify({
+            "success": True,
+            "history": history,
+            "count": len(history)
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in history endpoint: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+@app.route('/api/history/<int:history_id>', methods=['GET'])
+def get_history_details(history_id):
+    """Get detailed information about a specific recommendation"""
+    try:
+        details = db.get_history_details(history_id)
+        
+        if details:
+            return jsonify({
+                "success": True,
+                "details": details
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": "History not found"
+            }), 404
+            
+    except Exception as e:
+        print(f"Error in history details endpoint: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+@app.route('/api/statistics', methods=['GET'])
+def get_statistics():
+    """Get overall statistics"""
+    try:
+        stats = db.get_statistics()
+        
+        return jsonify({
+            "success": True,
+            "statistics": stats
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in statistics endpoint: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+@app.route('/api/history/<int:history_id>', methods=['DELETE'])
+def delete_history(history_id):
+    """Delete a specific recommendation history"""
+    try:
+        success = db.delete_history(history_id)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "History deleted successfully"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Failed to delete history"
+            }), 500
+            
+    except Exception as e:
+        print(f"Error in delete history endpoint: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+@app.route('/api/history/clear', methods=['DELETE'])
+def clear_history():
+    """Clear all recommendation history"""
+    try:
+        success = db.clear_all_history()
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "All history cleared successfully"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Failed to clear history"
+            }), 500
+            
+    except Exception as e:
+        print(f"Error in clear history endpoint: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+# ============================================
+# END OF NEW HISTORY ENDPOINTS
+# ============================================
 
 @app.errorhandler(404)
 def not_found(e):
@@ -140,5 +260,6 @@ def internal_error(e):
 if __name__ == '__main__':
     print("Starting Movie Recommender API...")
     print(f"Using TMDb API Key: {TMDB_API_KEY[:10]}..." if TMDB_API_KEY != 'YOUR_API_KEY_HERE' else "WARNING: Using placeholder API key")
+    print("Database initialized at: movie_recommendations.db")
     print("Server running on http://localhost:5000")
     app.run(debug=True, host='0.0.0.0', port=5000)
